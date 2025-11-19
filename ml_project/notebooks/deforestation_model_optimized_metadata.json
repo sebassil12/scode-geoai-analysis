@@ -1,0 +1,26 @@
+{
+    "Otras Tierras_pixels": 1408891.9058823565,
+    "Otras Tierras_pct": 68.35949725965921,
+    "Bosque_pixels": 647775.7058823564,
+    "Bosque_pct": 31.430105749245673,
+    "Deforestado_pixels": 4336.290196078431,
+    "Deforestado_pct": 0.2103969910951156,
+    "imbalance_ratio": 324.90719997395524,
+    "forest_threshold_used": 70,
+    "processing_date": "2025-11-18 22:14:17",
+    "optimization_round": "feature_engineering_v2_pipeline",
+    "final_accuracy": 0.8224285183809877,
+    "feature_engineering": "interactions + polynomials + scaling + selection (Integrated Pipeline)",
+    "top_features": [
+        "elevation",
+        "elevation_squared",
+        "SWIR2",
+        "Red_homogeneity",
+        "Red_entropy",
+        "NDVI_mean_3yr_div_NDVI_contrast",
+        "NDVI_mean_3yr_x_slope",
+        "SWIR1",
+        "Red_contrast_log",
+        "Red"
+    ]
+}
