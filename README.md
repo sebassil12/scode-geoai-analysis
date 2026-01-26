@@ -4,7 +4,7 @@ Este repositorio contiene el código fuente y la documentación para la clasific
 
 ---
 
-## 🛠️ Parte 1: Documentación Técnica
+## Documentación Técnica
 
 ### Estructura del Proyecto
 
