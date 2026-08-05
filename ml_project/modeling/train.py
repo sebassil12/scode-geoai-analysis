@@ -22,8 +22,14 @@ from typing import Any
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, train_test_split
+from sklearn.base import clone
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.model_selection import (
+    RandomizedSearchCV,
+    StratifiedKFold,
+    cross_validate,
+    train_test_split,
+)
 from sklearn.pipeline import Pipeline
 
 from ml_project.config import (
@@ -241,9 +247,65 @@ def run_search(
     return search.best_estimator_, cv_scores
 
 
+def run_ensemble(
+    fitted: dict[str, Pipeline],
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+) -> tuple[Pipeline, dict[str, Any]]:
+    """Soft-vote the already-tuned candidates into one calibrated classifier.
+
+    The base pipelines each carry their own tuned hyper-parameters and balance
+    strategy, so cloning them preserves the tuning; voting only averages the
+    class probabilities. Averaging beats any single tree family here because RF
+    leads on macro F1 while the boosters lead on PR-AUC — the vote keeps both.
+    CV uses the same splitter and scorers as ``run_search`` so its numbers sit
+    on the same scale as every other candidate's.
+    """
+    estimators = [(name, clone(pipe)) for name, pipe in fitted.items()]
+    ensemble = VotingClassifier(estimators, voting="soft")
+
+    scores = cross_validate(
+        ensemble,
+        X_train,
+        y_train,
+        cv=StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE),
+        scoring=build_scorers(),
+        n_jobs=SEARCH_N_JOBS,
+        error_score="raise",
+    )
+    cv_scores = {
+        "cv_f1_macro": float(scores[f"test_{PRIMARY_METRIC}"].mean()),
+        "cv_pr_auc": float(scores["test_pr_auc"].mean()),
+        "best_params": {"components": list(fitted)},
+    }
+
+    ensemble.fit(X_train, y_train)
+    log.info(
+        "ensemble: CV macro-F1=%.4f | CV PR-AUC=%.4f (%s)",
+        cv_scores["cv_f1_macro"],
+        cv_scores["cv_pr_auc"],
+        ", ".join(fitted),
+    )
+    return ensemble, cv_scores
+
+
 # ---------------------------------------------------------------------------
 # Artifacts
 # ---------------------------------------------------------------------------
+def _feature_pipeline(model: Any) -> Pipeline:
+    """The Pipeline that owns the ``features``/``selection`` steps.
+
+    For a single tuned model that is the model itself; for the soft-voting
+    ensemble every base shares the same feature schema, so the first one is a
+    faithful representative for the sidecar metadata.
+    """
+    if isinstance(model, Pipeline) and "features" in model.named_steps:
+        return model
+    if isinstance(model, VotingClassifier):
+        return model.estimators_[0]
+    raise TypeError(f"Cannot locate feature pipeline in {type(model).__name__}")
+
+
 def save_artifacts(
     pipeline: Pipeline,
     metadata: dict[str, Any],
@@ -254,8 +316,9 @@ def save_artifacts(
     model_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(pipeline, model_path)
 
-    engineer: SarFeatureEngineer = pipeline.named_steps["features"]
-    support = pipeline.named_steps["selection"].get_support()
+    feature_pipeline = _feature_pipeline(pipeline)
+    engineer: SarFeatureEngineer = feature_pipeline.named_steps["features"]
+    support = feature_pipeline.named_steps["selection"].get_support()
 
     payload = {
         **metadata,

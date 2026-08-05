@@ -36,6 +36,7 @@ from ml_project.modeling.train import (
     MODEL_BUILDERS,
     available_models,
     load_dataset,
+    run_ensemble,
     run_search,
     save_artifacts,
     split_dataset,
@@ -109,6 +110,25 @@ def run_benchmark(
 
     if not results:
         raise RuntimeError("Every candidate failed to train — see the warnings above")
+
+    # Race a soft-voting ensemble of the tuned candidates as one more contender.
+    # A vote of one is just that model, so it only enters with two or more bases.
+    if len(fitted) >= 2:
+        started = time.perf_counter()
+        ensemble, cv_scores = run_ensemble(fitted, X_train, y_train)
+        holdout = evaluate(ensemble, X_test, y_test, output_dir, prefix="ensemble ")
+        fitted["ensemble"] = ensemble
+        results.append(
+            BenchmarkResult(
+                model="ensemble",
+                holdout_f1_macro=holdout[PRIMARY_METRIC],
+                holdout_pr_auc=holdout["pr_auc"],
+                cv_f1_macro=cv_scores["cv_f1_macro"],
+                cv_pr_auc=cv_scores["cv_pr_auc"],
+                fit_seconds=round(time.perf_counter() - started, 2),
+                best_params=cv_scores["best_params"],
+            )
+        )
 
     results.sort(key=lambda r: r.rank_key, reverse=True)
     champion = results[0].model
